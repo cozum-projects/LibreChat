@@ -17,6 +17,7 @@ const {
 const { verify2FAWithTempToken } = require('~/server/controllers/auth/TwoFactorAuthController');
 const { logoutController } = require('~/server/controllers/auth/LogoutController');
 const { loginController } = require('~/server/controllers/auth/LoginController');
+const { setAuthTokens } = require('~/server/services/AuthService');
 const { getAppConfig } = require('~/server/services/Config');
 const middleware = require('~/server/middleware');
 const { Balance } = require('~/db/models');
@@ -71,5 +72,23 @@ router.post('/2fa/disable', middleware.requireJwtAuth, disable2FA);
 router.post('/2fa/backup/regenerate', middleware.requireJwtAuth, regenerateBackupCodes);
 
 router.get('/graph-token', middleware.requireJwtAuth, graphTokenController);
+
+/**
+ * Axata auto-login endpoint.
+ * Called by the reverse proxy after validating the Axata JWT.
+ * axataAuth middleware (global) has already set req.user.
+ * Sets LibreChat session cookies and redirects to the app root.
+ */
+router.get('/axata-login', async (req, res) => {
+  if (!req.user) {
+    return res.status(401).send('Unauthorized');
+  }
+  try {
+    await setAuthTokens(req.user._id, res);
+    return res.redirect('/');
+  } catch (err) {
+    return res.status(500).send('Login failed');
+  }
+});
 
 module.exports = router;

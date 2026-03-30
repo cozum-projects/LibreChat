@@ -32,6 +32,7 @@ const configureSocialLogins = require('./socialLogins');
 const { getAppConfig } = require('./services/Config');
 const staticCache = require('./utils/staticCache');
 const noIndex = require('./middleware/noIndex');
+const axataAuth = require('./middleware/axataAuth');
 const { seedDatabase } = require('~/models');
 const routes = require('./routes');
 
@@ -121,6 +122,7 @@ const startServer = async () => {
 
   /* OAUTH */
   app.use(passport.initialize());
+  app.use(axataAuth);
   passport.use(jwtLogin());
   passport.use(passportLogin());
 
