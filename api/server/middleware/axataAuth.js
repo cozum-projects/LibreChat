@@ -1,13 +1,30 @@
+const { createClient } = require('redis');
 const { logger } = require('@librechat/data-schemas');
 const { SystemRoles } = require('librechat-data-provider');
 const { findUser, createUser } = require('~/models');
+
+const REDIS_URL = process.env.REDIS_URL || 'redis://:axata_redis_pass@localhost:6379/0';
+const MCP_USER_KEY_PREFIX = 'axa:user_mcp:';
+
+let redisClient = null;
+
+async function getRedis() {
+  if (redisClient && redisClient.isOpen) {
+    return redisClient;
+  }
+  redisClient = createClient({ url: REDIS_URL });
+  redisClient.on('error', (err) => logger.warn(`[axataAuth] Redis error: ${err.message}`));
+  await redisClient.connect();
+  return redisClient;
+}
 
 /**
  * Axata Auto-Authentication Middleware
  *
  * Reads user context injected by the reverse proxy (X-Axata-* headers),
  * finds or creates the corresponding LibreChat user, and attaches it to req.user.
- * When req.user is set here, requireJwtAuth skips its own passport check.
+ * Also maps the LibreChat user ID to the Axata session ID in Redis so the
+ * MCP server can look up per-user DB credentials.
  */
 const axataAuth = async (req, res, next) => {
   if (req.user) {
@@ -45,6 +62,18 @@ const axataAuth = async (req, res, next) => {
 
     user.id = user._id.toString();
     req.user = user;
+
+    // Map LibreChat user ID → Axata session ID so the MCP server can look up DB credentials
+    const axaSession = req.cookies?.axa_session;
+    if (axaSession) {
+      try {
+        const redis = await getRedis();
+        await redis.set(`${MCP_USER_KEY_PREFIX}${user.id}`, axaSession, { EX: 86400 });
+        logger.debug(`[axataAuth] Mapped MCP session for ${axataUser} (${user.id})`);
+      } catch (redisErr) {
+        logger.warn(`[axataAuth] Could not write MCP session mapping: ${redisErr.message}`);
+      }
+    }
 
     logger.debug(`[axataAuth] Authenticated: ${axataUser} (${user.id})`);
     next();
